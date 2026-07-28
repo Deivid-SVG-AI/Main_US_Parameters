@@ -1,0 +1,6 @@
+# Este proyecto no requiere paquetes externos de pip.
+# Utiliza exclusivamente la biblioteca estandar de Python:
+# tkinter, csv, pathlib, re, collections y xml.etree.ElementTree.
+#
+# En algunas distribuciones Linux, Tkinter se instala con el sistema, por ejemplo:
+# sudo apt install python3-tk
