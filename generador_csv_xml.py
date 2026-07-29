@@ -16,9 +16,9 @@ class GeneradorCSV(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Generador CSV de nodos y parametros")
-        self.geometry("780x255")
-        self.minsize(680, 255)
+        self.title("Generador de datos para carta de parametros de US")
+        self.geometry("780x280")
+        self.minsize(680, 280)
 
         self.ruta_nodos = tk.StringVar()
         self.ruta_parametros = tk.StringVar()
@@ -26,8 +26,8 @@ class GeneradorCSV(tk.Tk):
         self.estado = tk.StringVar(
             value="Seleccione las carpetas e ingrese la estacion."
         )
-        self._crear_interfaz()
 
+        self._crear_interfaz()
         for variable in (self.ruta_nodos, self.ruta_parametros, self.estacion):
             variable.trace_add("write", self._validar_formulario)
 
@@ -35,6 +35,7 @@ class GeneradorCSV(tk.Tk):
         marco = ttk.Frame(self, padding=18)
         marco.pack(fill="both", expand=True)
         marco.columnconfigure(1, weight=1)
+        marco.rowconfigure(5, weight=1)
 
         ttk.Label(marco, text="Ruta para los nodos:").grid(
             row=0, column=0, sticky="w", pady=7
@@ -73,6 +74,19 @@ class GeneradorCSV(tk.Tk):
         ttk.Label(
             marco, textvariable=self.estado, foreground="#555555"
         ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+        ttk.Label(
+            marco,
+            text=(
+                "Dev: David Solis Hurtado • "
+                "Concepto: Steve Irving Garner Macazani"
+            ),
+            foreground="#808080",
+            font=("TkDefaultFont", 8),
+            anchor="e"
+        ).grid(
+            row=5, column=0, columnspan=3, sticky="se", pady=(12, 0)
+        )
 
     def _seleccionar_carpeta(self, variable):
         ruta = filedialog.askdirectory(title="Seleccione una carpeta")
@@ -221,13 +235,13 @@ class GeneradorCSV(tk.Tk):
 
         izquierda = formatear(lados["0"])
         derecha = formatear(lados["1"])
-        if izquierda and derecha:
-            combinacion = f"{izquierda} = {derecha}"
-        else:
-            combinacion = izquierda or derecha
+        combinacion = (
+            f"{izquierda} = {derecha}"
+            if izquierda and derecha
+            else izquierda or derecha
+        )
 
-        # Se agregan comillas inglesas como parte del texto para evitar que
-        # Excel convierta combinaciones como 3/18 en una fecha.
+        # Las comillas son parte del texto para evitar conversiones a fecha.
         return f'"{combinacion}"', faltantes
 
     @staticmethod
@@ -240,7 +254,7 @@ class GeneradorCSV(tk.Tk):
             nodo, tabla_conversion
         )
 
-        return {
+        fila = {
             "Area (mm2)": (
                 validacion.get("TCS", "") if validacion is not None else ""
             ),
@@ -250,8 +264,9 @@ class GeneradorCSV(tk.Tk):
             ),
             "Presion (b)": GeneradorCSV._texto(parametros, "Force1"),
             "Amplitud (mu)": GeneradorCSV._texto(parametros, "Amplitude1"),
-            "Ancho (mm)": GeneradorCSV._texto(parametros, "NodeWidth"),
-        }, faltantes
+            "Ancho (mm)": GeneradorCSV._texto(parametros, "NodeWidth")
+        }
+        return fila, faltantes
 
     @staticmethod
     def _clave_orden_area(fila):
@@ -328,9 +343,7 @@ class GeneradorCSV(tk.Tk):
 
         try:
             with open(destino, "w", newline="", encoding="utf-8-sig") as archivo:
-                escritor = csv.DictWriter(
-                    archivo, fieldnames=self.ENCABEZADOS
-                )
+                escritor = csv.DictWriter(archivo, fieldnames=self.ENCABEZADOS)
                 escritor.writeheader()
                 escritor.writerows(filas)
         except OSError as error:
