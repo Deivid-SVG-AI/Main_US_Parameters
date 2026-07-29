@@ -1,14 +1,18 @@
 import csv
 import re
 import tkinter as tk
+import xml.etree.ElementTree as ET
 from collections import Counter
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-import xml.etree.ElementTree as ET
 
 
 class GeneradorCSV(tk.Tk):
-    """Interfaz para emparejar XML de nodos y parametros y generar un CSV."""
+    ENCABEZADOS = [
+        "Area (mm2)", "Combinacion", "Energia (J)",
+        "Presion (b)", "Amplitud (mu)", "Ancho (mm)"
+    ]
 
     def __init__(self):
         super().__init__()
@@ -19,8 +23,9 @@ class GeneradorCSV(tk.Tk):
         self.ruta_nodos = tk.StringVar()
         self.ruta_parametros = tk.StringVar()
         self.estacion = tk.StringVar()
-        self.estado = tk.StringVar(value="Seleccione las carpetas e ingrese la estacion.")
-
+        self.estado = tk.StringVar(
+            value="Seleccione las carpetas e ingrese la estacion."
+        )
         self._crear_interfaz()
 
         for variable in (self.ruta_nodos, self.ruta_parametros, self.estacion):
@@ -31,23 +36,31 @@ class GeneradorCSV(tk.Tk):
         marco.pack(fill="both", expand=True)
         marco.columnconfigure(1, weight=1)
 
-        ttk.Label(marco, text="Ruta para los nodos:").grid(row=0, column=0, sticky="w", pady=7)
+        ttk.Label(marco, text="Ruta para los nodos:").grid(
+            row=0, column=0, sticky="w", pady=7
+        )
         ttk.Entry(marco, textvariable=self.ruta_nodos).grid(
             row=0, column=1, sticky="ew", padx=10, pady=7
         )
         ttk.Button(
-            marco, text="Browse", command=lambda: self._seleccionar_carpeta(self.ruta_nodos)
+            marco, text="Browse",
+            command=lambda: self._seleccionar_carpeta(self.ruta_nodos)
         ).grid(row=0, column=2, pady=7)
 
-        ttk.Label(marco, text="Ruta para parametros:").grid(row=1, column=0, sticky="w", pady=7)
+        ttk.Label(marco, text="Ruta para parametros:").grid(
+            row=1, column=0, sticky="w", pady=7
+        )
         ttk.Entry(marco, textvariable=self.ruta_parametros).grid(
             row=1, column=1, sticky="ew", padx=10, pady=7
         )
         ttk.Button(
-            marco, text="Browse", command=lambda: self._seleccionar_carpeta(self.ruta_parametros)
+            marco, text="Browse",
+            command=lambda: self._seleccionar_carpeta(self.ruta_parametros)
         ).grid(row=1, column=2, pady=7)
 
-        ttk.Label(marco, text="Estacion:").grid(row=2, column=0, sticky="w", pady=7)
+        ttk.Label(marco, text="Estacion:").grid(
+            row=2, column=0, sticky="w", pady=7
+        )
         ttk.Entry(marco, textvariable=self.estacion).grid(
             row=2, column=1, sticky="ew", padx=10, pady=7
         )
@@ -57,9 +70,9 @@ class GeneradorCSV(tk.Tk):
         )
         self.boton_generar.grid(row=3, column=1, pady=(15, 7))
 
-        ttk.Label(marco, textvariable=self.estado, foreground="#555555").grid(
-            row=4, column=0, columnspan=3, sticky="w", pady=(8, 0)
-        )
+        ttk.Label(
+            marco, textvariable=self.estado, foreground="#555555"
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _seleccionar_carpeta(self, variable):
         ruta = filedialog.askdirectory(title="Seleccione una carpeta")
@@ -67,15 +80,17 @@ class GeneradorCSV(tk.Tk):
             variable.set(ruta)
 
     def _validar_formulario(self, *_):
-        nodos_validos = Path(self.ruta_nodos.get().strip()).is_dir()
-        parametros_validos = Path(self.ruta_parametros.get().strip()).is_dir()
-        estacion_valida = len(self.estacion.get().strip()) >= 3
-        estado = "normal" if nodos_validos and parametros_validos and estacion_valida else "disabled"
-        self.boton_generar.configure(state=estado)
+        valido = (
+            Path(self.ruta_nodos.get().strip()).is_dir()
+            and Path(self.ruta_parametros.get().strip()).is_dir()
+            and len(self.estacion.get().strip()) >= 3
+        )
+        self.boton_generar.configure(
+            state="normal" if valido else "disabled"
+        )
 
     @staticmethod
     def _clave_archivo(ruta):
-        """Devuelve filename.split('.')[1], o None si el nombre no cumple el formato."""
         partes = ruta.name.split(".")
         return partes[1] if len(partes) > 2 and partes[1] else None
 
@@ -89,20 +104,16 @@ class GeneradorCSV(tk.Tk):
             if not ruta.name.upper().startswith(prefijo.upper()):
                 continue
             clave = GeneradorCSV._clave_archivo(ruta)
-            if clave:
-                if clave in indice:
-                    duplicados.add(clave)
-                else:
-                    indice[clave] = ruta
+            if not clave:
+                continue
+            if clave in indice:
+                duplicados.add(clave)
+            else:
+                indice[clave] = ruta
         return indice, duplicados
 
     @staticmethod
-    def _raiz_xml(ruta):
-        return ET.parse(ruta).getroot()
-
-    @staticmethod
     def _buscar(raiz, nombre):
-        # { * } permite encontrar el elemento sin depender del namespace del XML.
         return raiz.find(f".//{{*}}{nombre}")
 
     @staticmethod
@@ -113,27 +124,88 @@ class GeneradorCSV(tk.Tk):
         return elemento.text.strip()
 
     @staticmethod
-    def _combinacion(raiz_nodo):
+    def _normalizar_numero(valor):
+        try:
+            return Decimal(str(valor).strip().replace(",", ".")).normalize()
+        except (InvalidOperation, ValueError):
+            return None
+
+    @staticmethod
+    def _ruta_tabla_conversion():
+        junto_script = Path(__file__).resolve().parent / "tabla_conversion.csv"
+        if junto_script.is_file():
+            return junto_script
+        carpeta_actual = Path.cwd() / "tabla_conversion.csv"
+        return carpeta_actual if carpeta_actual.is_file() else junto_script
+
+    @staticmethod
+    def _cargar_tabla_conversion(ruta):
+        with open(ruta, "r", encoding="utf-8-sig", newline="") as archivo:
+            muestra = archivo.read(4096)
+            archivo.seek(0)
+            try:
+                dialecto = csv.Sniffer().sniff(muestra, delimiters=",;\t")
+                lector = csv.DictReader(archivo, dialect=dialecto)
+            except csv.Error:
+                lector = csv.DictReader(archivo)
+
+            if not lector.fieldnames:
+                raise ValueError("La tabla no contiene encabezados.")
+
+            encabezados = {
+                nombre.strip().lower().replace("\\_", "_"): nombre
+                for nombre in lector.fieldnames if nombre
+            }
+            columna_calibre = encabezados.get("calibre")
+            columna_cross = encabezados.get("cross_section")
+            if not columna_calibre or not columna_cross:
+                raise ValueError(
+                    "La tabla debe incluir las columnas "
+                    "'calibre' y 'cross_section'."
+                )
+
+            conversion = {}
+            for fila in lector:
+                calibre = (fila.get(columna_calibre) or "").strip()
+                cross_section = GeneradorCSV._normalizar_numero(
+                    fila.get(columna_cross, "")
+                )
+                if calibre and cross_section is not None:
+                    conversion[cross_section] = calibre
+
+        if not conversion:
+            raise ValueError("La tabla no contiene conversiones validas.")
+        return conversion
+
+    @staticmethod
+    def _combinacion(raiz_nodo, tabla_conversion):
         lados = {"0": Counter(), "1": Counter()}
+        faltantes = []
 
         for wire in raiz_nodo.findall(".//{*}Wire"):
-            ext_txt = GeneradorCSV._texto(wire, "ExtTxt")
             posicion = GeneradorCSV._buscar(wire, "Position")
-            if posicion is None:
+            if posicion is None or posicion.get("h") not in lados:
                 continue
-
             lado = posicion.get("h")
-            if lado not in lados:
-                continue
 
-            # Obtiene el primer valor numerico. Ej.: 20TXL -> 20.
+            ext_txt = GeneradorCSV._texto(wire, "ExtTxt")
             coincidencia = re.search(r"\d+(?:[.,]\d+)?", ext_txt)
-            if not coincidencia:
-                continue
-            calibre = coincidencia.group(0).replace(",", ".")
-            lados[lado][calibre] += 1
+            if coincidencia:
+                calibre = coincidencia.group(0).replace(",", ".")
+            else:
+                cross_texto = GeneradorCSV._texto(wire, "CrossSection")
+                cross_section = GeneradorCSV._normalizar_numero(cross_texto)
+                calibre = (
+                    tabla_conversion.get(cross_section)
+                    if cross_section is not None else None
+                )
+                if not calibre:
+                    faltantes.append(cross_texto or "sin CrossSection")
+                    continue
 
-        def ordenar_calibre(valor):
+            lados[lado][str(calibre)] += 1
+
+        def clave_calibre(valor):
             try:
                 return (0, float(valor))
             except ValueError:
@@ -142,30 +214,49 @@ class GeneradorCSV(tk.Tk):
         def formatear(contador):
             return ", ".join(
                 f"{cantidad}/{calibre}"
-                for calibre, cantidad in sorted(contador.items(), key=lambda item: ordenar_calibre(item[0]))
+                for calibre, cantidad in sorted(
+                    contador.items(), key=lambda x: clave_calibre(x[0])
+                )
             )
 
         izquierda = formatear(lados["0"])
         derecha = formatear(lados["1"])
-        # Se conservan ambos lados; si uno no tiene cables quedara vacio.
-        return f"{izquierda} = {derecha}"
+        if izquierda and derecha:
+            combinacion = f"{izquierda} = {derecha}"
+        else:
+            combinacion = izquierda or derecha
+
+        # Se agregan comillas inglesas como parte del texto para evitar que
+        # Excel convierta combinaciones como 3/18 en una fecha.
+        return f'"{combinacion}"', faltantes
 
     @staticmethod
-    def _fila(archivo_nodo, archivo_parametros):
-        nodo = GeneradorCSV._raiz_xml(archivo_nodo)
-        parametros = GeneradorCSV._raiz_xml(archivo_parametros)
-
+    def _fila(archivo_nodo, archivo_parametros, tabla_conversion):
+        nodo = ET.parse(archivo_nodo).getroot()
+        parametros = ET.parse(archivo_parametros).getroot()
         validacion = GeneradorCSV._buscar(parametros, "Validation")
         energia = GeneradorCSV._buscar(parametros, "E")
+        combinacion, faltantes = GeneradorCSV._combinacion(
+            nodo, tabla_conversion
+        )
 
         return {
-            "Area (mm2)": validacion.get("TCS", "") if validacion is not None else "",
-            "Combinacion": GeneradorCSV._combinacion(nodo),
-            "Energia (J)": energia.get("SetValue", "") if energia is not None else "",
+            "Area (mm2)": (
+                validacion.get("TCS", "") if validacion is not None else ""
+            ),
+            "Combinacion": combinacion,
+            "Energia (J)": (
+                energia.get("SetValue", "") if energia is not None else ""
+            ),
             "Presion (b)": GeneradorCSV._texto(parametros, "Force1"),
             "Amplitud (mu)": GeneradorCSV._texto(parametros, "Amplitude1"),
             "Ancho (mm)": GeneradorCSV._texto(parametros, "NodeWidth"),
-        }
+        }, faltantes
+
+    @staticmethod
+    def _clave_orden_area(fila):
+        area = GeneradorCSV._normalizar_numero(fila.get("Area (mm2)", ""))
+        return (1, Decimal("0")) if area is None else (0, area)
 
     @staticmethod
     def _nombre_seguro(texto):
@@ -175,52 +266,71 @@ class GeneradorCSV(tk.Tk):
     def _generar_csv(self):
         carpeta_nodos = Path(self.ruta_nodos.get().strip())
         carpeta_parametros = Path(self.ruta_parametros.get().strip())
+        ruta_tabla = self._ruta_tabla_conversion()
 
-        nodos, duplicados_n = self._indexar_xml(carpeta_nodos, "N.")
-        parametros, duplicados_p = self._indexar_xml(carpeta_parametros, "P.")
-        claves = sorted(set(nodos) & set(parametros))
-
-        if not claves:
-            messagebox.showwarning(
-                "Sin pares",
-                "No se encontraron pares XML con el mismo valor en split('.')[1].",
+        try:
+            tabla_conversion = self._cargar_tabla_conversion(ruta_tabla)
+        except (OSError, ValueError) as error:
+            messagebox.showerror(
+                "Error en tabla de conversion",
+                f"No fue posible cargar:\n{ruta_tabla}\n\n{error}\n\n"
+                "Coloque tabla_conversion.csv junto al script."
             )
             return
 
-        nombre = self._nombre_seguro(self.estacion.get()) + ".csv"
+        nodos, duplicados_n = self._indexar_xml(carpeta_nodos, "N.")
+        parametros, duplicados_p = self._indexar_xml(
+            carpeta_parametros, "P."
+        )
+        claves = sorted(set(nodos) & set(parametros))
+        if not claves:
+            messagebox.showwarning(
+                "Sin pares",
+                "No se encontraron pares XML con el mismo valor "
+                "en split('.')[1]."
+            )
+            return
+
         destino = filedialog.asksaveasfilename(
             title="Guardar archivo CSV",
             initialdir=str(carpeta_nodos),
-            initialfile=nombre,
+            initialfile=self._nombre_seguro(self.estacion.get()) + ".csv",
             defaultextension=".csv",
-            filetypes=[("Archivo CSV", "*.csv")],
+            filetypes=[("Archivo CSV", "*.csv")]
         )
         if not destino:
             return
 
         filas = []
         errores = []
+        faltantes_conversion = []
         for clave in claves:
             try:
-                filas.append(self._fila(nodos[clave], parametros[clave]))
+                fila, faltantes = self._fila(
+                    nodos[clave], parametros[clave], tabla_conversion
+                )
+                filas.append(fila)
+                faltantes_conversion.extend(
+                    f"{clave}: {valor}" for valor in faltantes
+                )
             except (ET.ParseError, OSError, ValueError) as error:
                 errores.append(f"{clave}: {error}")
 
         if not filas:
             messagebox.showerror(
                 "No se pudo generar",
-                "Todos los pares produjeron errores:\n\n" + "\n".join(errores[:10]),
+                "Todos los pares produjeron errores:\n\n"
+                + "\n".join(errores[:10])
             )
             return
 
-        encabezados = [
-            "Area (mm2)", "Combinacion", "Energia (J)",
-            "Presion (b)", "Amplitud (mu)", "Ancho (mm)"
-        ]
+        filas.sort(key=self._clave_orden_area)
+
         try:
-            # utf-8-sig facilita que Excel reconozca acentos y simbolos correctamente.
             with open(destino, "w", newline="", encoding="utf-8-sig") as archivo:
-                escritor = csv.DictWriter(archivo, fieldnames=encabezados)
+                escritor = csv.DictWriter(
+                    archivo, fieldnames=self.ENCABEZADOS
+                )
                 escritor.writeheader()
                 escritor.writerows(filas)
         except OSError as error:
@@ -235,18 +345,23 @@ class GeneradorCSV(tk.Tk):
         if sin_nodos:
             avisos.append(f"Parametros sin nodo: {sin_nodos}")
         if duplicados_n or duplicados_p:
-            avisos.append("Se detectaron claves duplicadas; se uso el primer archivo de cada clave.")
+            avisos.append(
+                "Se detectaron claves duplicadas; se uso el primer archivo."
+            )
         if errores:
             avisos.append(f"Pares omitidos por error: {len(errores)}")
+        if faltantes_conversion:
+            avisos.append(
+                "Cables omitidos por no tener calibre ni conversion: "
+                f"{len(faltantes_conversion)}"
+            )
 
-        detalle = "\n".join(avisos)
         self.estado.set(f"CSV generado: {destino}")
-        messagebox.showinfo(
-            "Proceso terminado",
-            f"Se generaron {len(filas)} filas.\n\n{destino}" + (f"\n\n{detalle}" if detalle else ""),
-        )
+        mensaje = f"Se generaron {len(filas)} filas.\n\n{destino}"
+        if avisos:
+            mensaje += "\n\n" + "\n".join(avisos)
+        messagebox.showinfo("Proceso terminado", mensaje)
 
 
 if __name__ == "__main__":
-    app = GeneradorCSV()
-    app.mainloop()
+    GeneradorCSV().mainloop()
